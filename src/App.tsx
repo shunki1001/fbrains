@@ -1,3 +1,4 @@
+import 'normalize.css'
 import './App.css';
 // import { useTheme } from '@mui/material/styles';
 // import useMediaQuery from '@mui/material/useMediaQuery';

@@ -79,12 +79,22 @@ h2{
 .svg-margin{
   display: flex;
   vertical-align: middle;
+  text-decoration: none;
+  gap:10px;
 }
 .img_container{
   width: 100%;
   margin: 1em 0;
+  display: flex;
+  flex-wrap: wrap;
 }
-.img_container img{
+.img_container .flex_img_item{
+  width: 25%;
+  margin-left: 2.5%;
+  margin-right: 2.5%;
+  max-width: 350px;
+}
+.img_container .flex_img_item img{
   width: 100%;
 }
 

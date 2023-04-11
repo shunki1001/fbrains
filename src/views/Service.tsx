@@ -1,8 +1,10 @@
-import { Box,Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Link } from '@mui/material'
+import { Box,Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Link, Avatar } from '@mui/material'
 import React from 'react'
 import { advertisementList, movieList, OtherList, videoList } from '../data/serviceList'
 import LaunchIcon from '@mui/icons-material/Launch';
 import poster_visuals from "../image/poster_visuals.JPG"
+import youtubeIcon from "../image/channels_profile.jpg"
+import poster_visuals_tsumi from "../image/poster_visuals_tsumi_no_yohaku.JPG"
 
 const Service = () => {
   return (
@@ -54,7 +56,13 @@ const Service = () => {
         </Table>
       </TableContainer>
       <div className="img_container">
-        <img src={poster_visuals} alt="lady in white poster"/>
+        <div className='flex_img_item'>
+          <img src={poster_visuals} alt="lady in white poster" />
+        </div>
+        <div className='flex_img_item'>
+          <img src={poster_visuals_tsumi} alt="tsumi no yohaku poster" />
+          <Typography variant="caption">©2015罪の余白 フィルムパートナーズ</Typography>
+        </div>
       </div>
       <Typography variant="h6">映像作品</Typography>
       <TableContainer component={Paper} sx={{mb:4}}>
@@ -71,7 +79,12 @@ const Service = () => {
                 return (
                   <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                     <TableCell component="th" scope="row">
-                    <Link href="https://www.youtube.com/channel/UCdRLmsjsuhBWxhXtQeQlwcA" target='_blank' className="svg-margin">{item.label}<LaunchIcon fontSize="small"  /></Link>
+                      <Link href="https://www.youtube.com/channel/UCdRLmsjsuhBWxhXtQeQlwcA" target='_blank' className="svg-margin">
+                          {/* <Avatar src={youtubeIcon} alt="youtubeicon" />
+                          <p>{item.label}</p> */}
+                        {item.label}
+                        <LaunchIcon fontSize="small" />
+                      </Link>
                     </TableCell>
                     <TableCell>{item.year}</TableCell>
                   </TableRow>
