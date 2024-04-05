@@ -14,13 +14,13 @@ import {
 import React from "react";
 import {
   advertisementList,
+  homepageList,
   movieList,
   OtherList,
   videoList,
 } from "../data/serviceList";
 import LaunchIcon from "@mui/icons-material/Launch";
 import poster_visuals from "../image/poster_visuals.JPG";
-import youtubeIcon from "../image/channels_profile.jpg";
 import poster_visuals_tsumi from "../image/poster_visuals_tsumi_no_yohaku.JPG";
 
 const Service = () => {
@@ -133,9 +133,38 @@ const Service = () => {
           </TableBody>
         </Table>
       </TableContainer>
-      <Typography>その他 ドラマ、バラエティ、地上波、BS波にて多数</Typography>
+      <Typography variant="h6">ホームページ制作</Typography>
+      <TableContainer component={Paper} sx={{ mb: 4 }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ minWidth: "6em" }}>クライアント</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {homepageList.map((item) => {
+              return (
+                <TableRow
+                  sx={{ "&:last-child td, &:last-child th": { border: 0 } }}
+                >
+                  <TableCell component="th" scope="row">
+                    <Link
+                      href={item.href}
+                      target="_blank"
+                      className="svg-margin"
+                    >
+                      {item.text}
+                      <LaunchIcon fontSize="small" />
+                    </Link>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
       <Typography variant="h6">その他</Typography>
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} sx={{ mb: 4 }}>
         <Table>
           <TableHead>
             <TableRow>
