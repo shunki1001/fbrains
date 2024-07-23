@@ -1,16 +1,19 @@
 {
   "hosting": {
     "public": "build",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "site":"fbrains",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "site": "fbrains",
     "rewrites": [
       {
         "source": "**",
         "destination": "/index.html"
+      }
+    ],
+    "redirects": [
+      {
+        "source": "/**",
+        "destination": "https://www.f-brains.tokyo/wp/",
+        "type": 301
       }
     ]
   }
