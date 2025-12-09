@@ -44,4 +44,12 @@ function display_multiple_react_tools($atts) {
 
 add_shortcode('my_react_tool', 'display_multiple_react_tools');
 
+function fbrains_portfolio_assets() {
+    if ( is_page_template( 'page-portfolio.php' ) ) {
+        wp_enqueue_style( 'fbrains-portfolio-style', get_stylesheet_directory_uri() . '/assets/index-BbLqQkzf.css' );
+        wp_enqueue_script( 'fbrains-portfolio-script', get_stylesheet_directory_uri() . '/assets/index-DxezooZr.js', array(), null, true );
+    }
+}
+add_action( 'wp_enqueue_scripts', 'fbrains_portfolio_assets' );
+
 ?>
