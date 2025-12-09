@@ -583,11 +583,18 @@ const App = () => {
 
               <dl className="grid gap-y-6">
                 {[
-                  { dt: "屋号", dd: "F-BRAINS (エフ・ブレインズ)" },
-                  { dt: "代表", dd: "山田 太郎 (Taro Yamada)" },
+                  { dt: "会社名", dd: "株式会社エフ＆ブレインズ" },
+                  { dt: "英文社名", dd: "F&brains Inc." },
+                  { dt: "代表取締役", dd: "二村慈哉" },
                   {
                     dt: "所在地",
-                    dd: "〒100-0000 東京都千代田区...",
+                    dd: (
+                      <>
+                        本社：愛知県名古屋市中川区野田2丁目364番
+                        <br />
+                        東京出張所：東京都品川区大井2-27-24-1203
+                      </>
+                    ),
                     icon: (
                       <MapPin
                         size={14}
@@ -596,8 +603,18 @@ const App = () => {
                     ),
                   },
                   {
+                    dt: "電話番号",
+                    dd: (
+                      <>
+                        090-3509-8848（代表）
+                        <br />
+                        070-8488-4730（システム関連）
+                      </>
+                    ),
+                  },
+                  {
                     dt: "設立",
-                    dd: "2024年1月",
+                    dd: "2010年7月",
                     icon: (
                       <Calendar
                         size={14}
@@ -609,14 +626,13 @@ const App = () => {
                     dt: "事業内容",
                     dd: (
                       <ul className="list-disc list-inside space-y-1 text-slate-600">
-                        <li>Webシステム・アプリケーション開発</li>
-                        <li>生成AI（LLM）導入・活用支援</li>
-                        <li>業務効率化・自動化（RPA）コンサルティング</li>
-                        <li>データ連携基盤構築</li>
+                        <li>メディア運営</li>
+                        <li>システム開発</li>
+                        <li>映像制作</li>
                       </ul>
                     ),
                   },
-                  { dt: "取引銀行", dd: "◯◯銀行、△△銀行" },
+                  { dt: "取引銀行", dd: "三菱UFJ銀行 大井支店" },
                 ].map((item, idx) => (
                   <div
                     key={idx}
@@ -624,6 +640,7 @@ const App = () => {
                   >
                     <dt className="md:col-span-3 text-sm font-bold text-indigo-900 tracking-widest flex items-center mb-2 md:mb-0">
                       <span className="w-1 h-4 bg-indigo-900 mr-3 opacity-0 group-hover:opacity-100 transition-opacity"></span>
+                      {item.icon}
                       {item.dt}
                     </dt>
                     <dd className="md:col-span-9 text-slate-700 font-serif leading-relaxed">
