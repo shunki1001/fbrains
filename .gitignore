@@ -2,3 +2,11 @@ assets/
 .env
 
 env/
+node_modules/
+
+# Supabase CLI
+.supabase/
+supabase/db/
+supabase/.temp/
+supabase/functions/*/node_modules/
+supabase/functions/*/dist/
