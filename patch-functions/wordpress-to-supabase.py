@@ -7,6 +7,7 @@ from supabase import Client, create_client
 
 # --- 設定 (環境変数や直接入力で設定してください) ---
 WP_BASE_URL = "https://www.f-brains.tokyo/wp/wp-json/wp/v2"
+CUSTOM_POST_TYPES = ["works"]  # 移行したいカスタム投稿タイプをここに追加
 
 # Supabase設定
 SUPABASE_URL = "https://rghhugoavvwbkulrbcpr.supabase.co"
@@ -19,11 +20,12 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def fetch_wp_data(endpoint_type):
-    """WordPressから全データを取得する（ページネーション対応）"""
+    """WordPressから全データを取得する（ページネーション・アイキャッチ埋め込み対応）"""
     items = []
     page = 1
     while True:
-        url = f"{WP_BASE_URL}/{endpoint_type}?per_page=100&page={page}"
+        # _embedパラメータを追加して関連データ（アイキャッチなど）をレスポンスに含める
+        url = f"{WP_BASE_URL}/{endpoint_type}?per_page=100&page={page}&_embed"
         print(f"📡 {endpoint_type} の {page} ページ目を取得中...")
 
         try:
@@ -46,39 +48,62 @@ def fetch_wp_data(endpoint_type):
 
 
 def migrate():
+    """WordPressから各種投稿データを取得し、Supabaseに移行するメイン関数"""
     print("⚔️  作戦開始: WordPressデータの抽出...")
 
     try:
-        # 1. 投稿と固定ページの両方を取得
-        posts = fetch_wp_data("posts")
-        pages = fetch_wp_data("pages")
-
+        # 1. 投稿、固定ページ、カスタム投稿タイプを全て取得
         all_items = []
+        # posts, pages は複数形なのでそのままリストに
+        post_types_to_fetch = ["posts", "pages"] + CUSTOM_POST_TYPES
 
-        # 投稿データの整形
-        for p in posts:
-            p["custom_type"] = "post"
-            all_items.append(p)
+        total_counts = {}
 
-        # 固定ページデータの整形
-        for p in pages:
-            p["custom_type"] = "page"
-            all_items.append(p)
+        for post_type_endpoint in post_types_to_fetch:
+            print(f"--- '{post_type_endpoint}' の取得を開始 ---")
+            items = fetch_wp_data(post_type_endpoint)
+            total_counts[post_type_endpoint] = len(items)
 
-        print(
-            f"📦 合計 {len(all_items)} 件（投稿: {len(posts)}, 固定ページ: {len(pages)}）を発見しました。"
+            # データを整形して追加
+            for item in items:
+                # APIエンドポイント名（例: 'posts'）から実際のタイプ名（例: 'post'）を決定
+                # 'pages' -> 'page', 'works' -> 'work'
+                type_slug = (
+                    post_type_endpoint[:-1]
+                    if post_type_endpoint.endswith("s")
+                    else post_type_endpoint
+                )
+                item["custom_type"] = type_slug
+                all_items.append(item)
+
+        count_str = ", ".join(
+            [f"{k}: {v}" for k, v in total_counts.items() if v > 0]
         )
+        print(f"\n📦 合計 {len(all_items)} 件（{count_str}）を発見しました。")
+
+        if not all_items:
+            print("移行対象のデータが見つかりませんでした。処理を終了します。")
+            return
 
         # 2. Supabaseへ流し込む
+        print("\n🚀 Supabaseへのデータ移行を開始します...")
         for item in all_items:
+            # アイキャッチ画像のURLを取得
+            thumbnail_url = None
+            if "_embedded" in item and "wp:featuredmedia" in item["_embedded"]:
+                media_list = item["_embedded"]["wp:featuredmedia"]
+                if media_list and isinstance(media_list, list) and "source_url" in media_list[0]:
+                    thumbnail_url = media_list[0]["source_url"]
+
             payload = {
                 "wp_id": item["id"],
                 "title": item["title"]["rendered"],
                 "content": item["content"]["rendered"],
                 "slug": item["slug"],
                 "created_at": item["date"],
-                "post_type": item["custom_type"],  # 'post' or 'page'
+                "post_type": item["custom_type"],
                 "status": "published",
+                "post_thumbnail": thumbnail_url,  # アイキャッチ画像のURLを追加
             }
 
             # 3. Upsert実行
@@ -88,10 +113,10 @@ def migrate():
 
             print(f"✅ 移行完了 [{item['custom_type']}]: {item['title']['rendered']}")
 
-        print("🎉 作戦終了: 全軍移行完了しました。")
+        print("\n🎉 作戦終了: 全軍移行完了しました。")
 
     except Exception as e:
-        print(f"致命的なエラー: {e}")
+        print(f"\n❌ 致命的なエラーが発生しました: {e}")
 
         # エラーコード 42P10 (ON CONFLICT時の制約不足) への対処ヒント
         if "42P10" in str(e) or "no unique or exclusion constraint" in str(e):
