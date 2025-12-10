@@ -19,6 +19,8 @@ import {
   History,
   Activity,
 } from "lucide-react";
+import Header from "./components/Header";
+import Footer from "./components/Footer";
 
 // --- Supabase Client Initialization ---
 // 環境変数がない場合（プレビュー用）のダミー処理を含んでいます
@@ -31,9 +33,6 @@ const supabase = isSupabaseEnabled
   : null;
 
 const App = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-
   // Gemini API State
   const [strategyInput, setStrategyInput] = useState("");
   const [strategyResult, setStrategyResult] = useState(null);
@@ -44,17 +43,7 @@ const App = () => {
   const [historyLogs, setHistoryLogs] = useState([]);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
 
-  // Scroll detection
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 50);
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
   const scrollTo = (id) => {
-    setIsMenuOpen(false);
     const element = document.getElementById(id);
     if (element) {
       element.scrollIntoView({ behavior: "smooth" });
@@ -181,71 +170,7 @@ const App = () => {
         }}
       ></div>
 
-      {/* Navigation */}
-      <nav
-        className={`fixed top-0 w-full z-50 transition-all duration-500 ${
-          scrolled
-            ? "bg-[#FDFBF7]/95 backdrop-blur border-b border-slate-200 py-4 shadow-sm"
-            : "bg-transparent py-6"
-        }`}
-      >
-        <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-          <div
-            className="flex items-center gap-3 cursor-pointer"
-            onClick={() => scrollTo("vision")}
-          >
-            <div className="w-10 h-10 bg-indigo-900 flex items-center justify-center text-white shadow-md relative overflow-hidden group">
-              <span className="font-serif font-bold text-xl relative z-10">
-                F
-              </span>
-              <div className="absolute inset-0 bg-indigo-800 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-bold tracking-widest text-sm leading-none">
-                F-BRAINS
-              </span>
-              <span className="text-[10px] text-slate-500 tracking-widest mt-1">
-                TOKYO
-              </span>
-            </div>
-          </div>
-          <div className="hidden md:flex gap-8 text-xs font-bold tracking-[0.2em] text-slate-600">
-            {navItems.map((item) => (
-              <button
-                key={item}
-                onClick={() => scrollTo(item.toLowerCase())}
-                className="hover:text-indigo-900 relative group transition-colors py-2"
-              >
-                {item}
-                <span className="absolute bottom-0 left-1/2 w-0 h-[2px] bg-indigo-900 transition-all group-hover:w-full group-hover:left-0"></span>
-              </button>
-            ))}
-          </div>
-          <button
-            className="md:hidden p-2 text-slate-800"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-          >
-            {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
-        </div>
-      </nav>
-
-      {/* Mobile Menu */}
-      {isMenuOpen && (
-        <div className="fixed inset-0 bg-indigo-900 z-40 flex items-center justify-center animate-fade-in">
-          <div className="flex flex-col gap-8 text-white text-2xl font-serif text-center">
-            {navItems.map((item) => (
-              <button
-                key={item}
-                onClick={() => scrollTo(item.toLowerCase())}
-                className="hover:text-indigo-300 transition-colors"
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <Header scrollTo={scrollTo} />
 
       {/* Hero Section */}
       <section
@@ -784,13 +709,7 @@ const App = () => {
               CrowdWorks
             </a>
           </div>
-          <footer className="mt-24 pt-8 border-t border-slate-100 text-xs text-slate-400 font-mono flex flex-col md:flex-row justify-between items-center gap-4">
-            <div>© 2024 F-BRAINS.</div>
-            <div className="flex gap-4">
-              <span>PRIVACY POLICY</span>
-              <span>TERMS</span>
-            </div>
-          </footer>
+          <Footer />
         </div>
       </section>
 
