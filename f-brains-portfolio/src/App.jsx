@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   Box,
   Cpu,
@@ -15,7 +16,19 @@ import {
   Sparkles,
   Scroll,
   Bot,
+  History,
+  Activity,
 } from "lucide-react";
+
+// --- Supabase Client Initialization ---
+// 環境変数がない場合（プレビュー用）のダミー処理を含んでいます
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const isSupabaseEnabled = supabaseUrl && supabaseAnonKey;
+
+const supabase = isSupabaseEnabled
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 const App = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -26,6 +39,10 @@ const App = () => {
   const [strategyResult, setStrategyResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Real-time History State
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
 
   // Scroll detection
   useEffect(() => {
@@ -44,7 +61,45 @@ const App = () => {
     }
   };
 
-  // Gemini API Call
+  // --- Supabase Realtime Subscription ---
+  useEffect(() => {
+    if (!supabase) return;
+
+    // 1. 初期データの取得 (最新5件)
+    const fetchInitialData = async () => {
+      const { data, error } = await supabase
+        .from("strategy_logs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      if (data) setHistoryLogs(data);
+    };
+
+    fetchInitialData();
+
+    // 2. リアルタイム購読の開始
+    const channel = supabase
+      .channel("public:strategy_logs")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "strategy_logs" },
+        (payload) => {
+          // 新しいログが追加されたら、リストの先頭に追加
+          console.log("Realtime Update:", payload);
+          setHistoryLogs((prev) => [payload.new, ...prev].slice(0, 5));
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setIsRealtimeConnected(true);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // --- Gemini API Call with Supabase Save ---
   const generateStrategy = async () => {
     if (!strategyInput.trim()) return;
 
@@ -52,32 +107,31 @@ const App = () => {
     setError(null);
     setStrategyResult(null);
 
-    const apiKey = ""; // API Key provided by runtime environment
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
     const systemPrompt = `
       あなたは「F-BRAINS」という凄腕のシステム開発者・AI戦略家（軍師）のAIエージェントです。
       ユーザー（殿/クライアント）からビジネス上の課題や「戦況」が入力されます。
       それに対し、以下のスタイルで技術的な「策（ソリューション）」を提案してください。
 
       ## キャラクター設定
-      - 口調: 丁寧だが、軍師のような知性と威厳がある（「～でございます」「～が上策かと」）。
+      - 口調: 丁寧だが、軍師のような知性と威厳がある。
       - コンセプト: 「UIなきシステムこそ最強」「戦わずして勝つ（自動化）」を信条とする。
-      - 提案技術: Python, AWS, RAG, Automation, API連携などを好む。
+      - 文字数: 300文字以内で簡潔に。
 
       ## 出力フォーマット
-      以下の3つのセクションで構成し、Markdown形式で出力してください。
-      1. **【戦況分析】**: 課題の本質を鋭く指摘。
-      2. **【必勝の策】**: 具体的な技術アプローチ（例: 「Pythonによるスクレイピング部隊を配備し…」）。
-      3. **【勝算】**: その策によって得られる成果（工数削減、売上増など）。
+      Markdown形式で、以下の要素を含めてください。
+      **【戦況分析】** ...
+      **【必勝の策】** ...
+      **【勝算】** ...
     `;
 
     try {
+      // 1. Gemini API Call
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{ parts: [{ text: strategyInput }] }],
             systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -85,13 +139,21 @@ const App = () => {
         }
       );
 
-      if (!response.ok) {
-        throw new Error("軍議（API通信）に失敗しました。");
-      }
+      if (!response.ok) throw new Error("軍議（API通信）に失敗しました。");
 
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       setStrategyResult(text);
+
+      // 2. Save to Supabase (if configured)
+      if (supabase) {
+        await supabase.from("strategy_logs").insert([
+          {
+            input: strategyInput.substring(0, 50) + "...", // プライバシー配慮でトリミングしても良い
+            result: text,
+          },
+        ]);
+      }
     } catch (err) {
       console.error(err);
       setError("通信経路に障害発生。再送を試みてください。");
@@ -111,7 +173,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] text-slate-900 font-sans selection:bg-indigo-900 selection:text-white">
-      {/* 背景テクスチャ */}
+      {/* Background Texture */}
       <div
         className="fixed inset-0 opacity-40 pointer-events-none z-0"
         style={{
@@ -128,7 +190,6 @@ const App = () => {
         }`}
       >
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-          {/* Logo Area */}
           <div
             className="flex items-center gap-3 cursor-pointer"
             onClick={() => scrollTo("vision")}
@@ -148,8 +209,6 @@ const App = () => {
               </span>
             </div>
           </div>
-
-          {/* Desktop Menu */}
           <div className="hidden md:flex gap-8 text-xs font-bold tracking-[0.2em] text-slate-600">
             {navItems.map((item) => (
               <button
@@ -162,8 +221,6 @@ const App = () => {
               </button>
             ))}
           </div>
-
-          {/* Mobile Menu Toggle */}
           <button
             className="md:hidden p-2 text-slate-800"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -173,7 +230,7 @@ const App = () => {
         </div>
       </nav>
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile Menu */}
       {isMenuOpen && (
         <div className="fixed inset-0 bg-indigo-900 z-40 flex items-center justify-center animate-fade-in">
           <div className="flex flex-col gap-8 text-white text-2xl font-serif text-center">
@@ -196,7 +253,6 @@ const App = () => {
         className="relative pt-32 pb-20 px-6 min-h-[90vh] flex items-center border-b border-slate-200"
       >
         <div className="max-w-7xl mx-auto w-full grid lg:grid-cols-12 gap-12">
-          {/* Main Copy (Left) */}
           <div className="lg:col-span-7 flex flex-col justify-center relative z-10">
             <div className="inline-flex items-center gap-2 mb-6 animate-slide-in-left">
               <span className="h-[1px] w-12 bg-indigo-900"></span>
@@ -204,7 +260,6 @@ const App = () => {
                 Strategic System Architect
               </span>
             </div>
-
             <h1 className="text-5xl lg:text-7xl font-bold leading-tight text-slate-900 mb-8 font-serif">
               <span className="block mb-2">UIなき</span>
               <span className="block text-slate-400">システムこそ、</span>
@@ -224,7 +279,6 @@ const App = () => {
                 </svg>
               </span>
             </h1>
-
             <p className="text-slate-600 text-lg leading-loose max-w-xl mb-10">
               表層のデザインではなく、ビジネスの深層を設計する。
               <br />
@@ -232,7 +286,6 @@ const App = () => {
               <br />
               あなたの事業に「勝利のロジック」を実装します。
             </p>
-
             <div className="flex flex-wrap gap-4">
               <button
                 onClick={() => scrollTo("contact")}
@@ -252,13 +305,10 @@ const App = () => {
               </button>
             </div>
           </div>
-
-          {/* Visual Element (Right) */}
           <div className="lg:col-span-5 relative flex items-center justify-center lg:justify-end">
             <div className="relative w-80 h-80 lg:w-96 lg:h-96">
               <div className="absolute inset-0 border border-slate-200 rotate-45 animate-spin-slow"></div>
               <div className="absolute inset-4 border border-slate-200 -rotate-12 animate-reverse-spin-slower"></div>
-
               <div className="absolute inset-0 m-auto w-48 h-64 bg-white shadow-2xl border border-slate-100 flex flex-col p-6 items-center justify-center gap-4 transform transition-transform hover:-translate-y-2 duration-500 z-10">
                 <Cpu className="text-indigo-900 w-12 h-12" strokeWidth={1.5} />
                 <div className="text-center">
@@ -272,15 +322,22 @@ const App = () => {
                 <div className="w-full h-[1px] bg-slate-100 my-2"></div>
                 <div className="w-full space-y-2">
                   <div className="flex justify-between text-[10px] font-mono">
-                    <span className="text-slate-500">EFFICIENCY</span>
-                    <span className="text-indigo-600 font-bold">99.9%</span>
+                    <span className="text-slate-500">REALTIME</span>
+                    <span
+                      className={`font-bold ${
+                        isRealtimeConnected
+                          ? "text-green-600"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {isRealtimeConnected ? "ONLINE" : "CONNECTING..."}
+                    </span>
                   </div>
                   <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
-                    <div className="bg-indigo-900 h-full w-[99%]"></div>
+                    <div className="bg-indigo-900 h-full w-[99%] animate-pulse"></div>
                   </div>
                 </div>
               </div>
-
               <div className="absolute -right-8 top-0 text-6xl font-serif font-black text-slate-100 writing-vertical-rl select-none">
                 自動化
               </div>
@@ -307,29 +364,22 @@ const App = () => {
               3つの領域で貴社のバックエンドを強化します。
             </p>
           </div>
-
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {
-                icon: (
-                  <Workflow className="text-slate-900 group-hover:text-white transition-colors" />
-                ),
+                icon: <Workflow />,
                 title: "データ連携・API開発",
                 desc: "散在するデータを統合し、システムの血管を通す。SaaS間連携やDB構築により、情報の分断を解消します。",
                 tags: ["Custom API", "Data Sync", "Migration"],
               },
               {
-                icon: (
-                  <Zap className="text-slate-900 group-hover:text-white transition-colors" />
-                ),
+                icon: <Zap />,
                 title: "業務自動化 (RPA)",
                 desc: "定型業務をスクリプトで一掃する。人の手が必要ない作業を自動化し、創造的な時間を取り戻します。",
                 tags: ["Python Scripting", "Batch Process", "Scraping"],
               },
               {
-                icon: (
-                  <Box className="text-slate-900 group-hover:text-white transition-colors" />
-                ),
+                icon: <Box />,
                 title: "生成AIソリューション",
                 desc: "最新の兵器を実務へ。LLMを活用したテキスト解析や生成システムで、業務の質を次元上昇させます。",
                 tags: ["LLM Integration", "RAG System", "AI Agents"],
@@ -340,7 +390,9 @@ const App = () => {
                 className="group p-8 border border-slate-200 hover:border-indigo-900 transition-all bg-[#FDFBF7] hover:shadow-xl hover:shadow-indigo-900/5 duration-300"
               >
                 <div className="w-12 h-12 bg-white border border-slate-200 flex items-center justify-center mb-6 group-hover:bg-indigo-900 group-hover:border-indigo-900 transition-colors">
-                  {service.icon}
+                  <div className="text-slate-900 group-hover:text-white transition-colors">
+                    {service.icon}
+                  </div>
                 </div>
                 <h3 className="text-xl font-bold mb-3 font-serif">
                   {service.title}
@@ -365,90 +417,161 @@ const App = () => {
         </div>
       </section>
 
-      {/* NEW: Gemini AI Strategy Section */}
+      {/* STRATEGY SECTION (Main Feature) */}
       <section
         id="strategy"
         className="py-24 px-6 bg-slate-50 border-y border-slate-200 overflow-hidden relative"
       >
-        <div className="max-w-4xl mx-auto relative z-10">
-          <div className="text-center mb-12">
-            <span className="text-indigo-900 font-bold tracking-widest text-xs uppercase mb-2 block flex items-center justify-center gap-2">
-              <Sparkles size={14} /> Powered by Gemini
-            </span>
-            <h2 className="text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-4">
-              AI軍師の戦況分析
-            </h2>
-            <p className="text-slate-500">
-              あなたのビジネスの課題（戦況）をお聞かせください。
-              <br />
-              F-BRAINSのAIエージェントが、即座に「勝利への策」を献策いたします。
-            </p>
-          </div>
-
-          <div className="bg-white p-6 md:p-10 rounded-sm shadow-xl border border-slate-200 relative">
-            {/* Input Area */}
-            <div className="mb-6">
-              <label className="block text-xs font-bold text-slate-600 mb-2 tracking-widest">
-                戦況報告（現状の課題）
-              </label>
-              <textarea
-                value={strategyInput}
-                onChange={(e) => setStrategyInput(e.target.value)}
-                placeholder="例：顧客リストの整理に毎日2時間かかっている。複数のExcelファイルから手作業でコピペしており、ミスも多い。"
-                className="w-full p-4 border border-slate-200 bg-slate-50 focus:border-indigo-900 focus:ring-1 focus:ring-indigo-900 outline-none transition-all min-h-[120px] font-sans text-slate-700 resize-none"
-              />
+        <div className="max-w-7xl mx-auto relative z-10 grid lg:grid-cols-2 gap-12">
+          {/* Left Column: Interaction */}
+          <div>
+            <div className="text-left mb-8">
+              <span className="text-indigo-900 font-bold tracking-widest text-xs uppercase mb-2 block flex items-center gap-2">
+                <Sparkles size={14} /> AI Strategic Counsel
+              </span>
+              <h2 className="text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-4">
+                AI軍師の戦況分析
+              </h2>
+              <p className="text-slate-500">
+                あなたのビジネスの課題を入力してください。
+                <br />
+                即座に「勝利への策」を献策いたします。
+              </p>
             </div>
 
-            <div className="flex justify-center mb-8">
-              <button
-                onClick={generateStrategy}
-                disabled={isLoading || !strategyInput.trim()}
-                className="bg-indigo-900 text-white px-10 py-4 font-bold tracking-widest hover:bg-indigo-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center gap-3 shadow-lg group relative overflow-hidden"
-              >
-                {isLoading ? (
-                  <>
-                    <span className="animate-spin w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></span>
-                    策を練っております...
-                  </>
-                ) : (
-                  <>
-                    <Bot size={20} />
-                    策を講じる
-                  </>
-                )}
-                <div className="absolute inset-0 bg-white/10 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
-              </button>
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="text-red-600 text-center text-sm font-bold bg-red-50 p-4 border border-red-100 mb-6">
-                {error}
+            <div className="bg-white p-6 md:p-8 rounded-sm shadow-xl border border-slate-200 relative">
+              <div className="mb-6">
+                <label className="block text-xs font-bold text-slate-600 mb-2 tracking-widest">
+                  戦況報告（課題入力）
+                </label>
+                <textarea
+                  value={strategyInput}
+                  onChange={(e) => setStrategyInput(e.target.value)}
+                  placeholder="例：毎月の請求書作成に時間がかかりすぎている。PDFを読み取ってExcelに入力する作業を自動化したい。"
+                  className="w-full p-4 border border-slate-200 bg-slate-50 focus:border-indigo-900 focus:ring-1 focus:ring-indigo-900 outline-none transition-all min-h-[120px] font-sans text-slate-700 resize-none"
+                />
               </div>
-            )}
 
-            {/* Result Area - Styled like a scroll/letter */}
-            {strategyResult && (
-              <div className="animate-fade-in bg-[#FDFBF7] border border-slate-200 p-8 relative">
-                <div className="absolute top-0 left-0 w-full h-1 bg-indigo-900/10"></div>
-                <div className="flex items-center gap-2 mb-6 border-b border-slate-200 pb-4">
-                  <Scroll className="text-indigo-900" size={24} />
-                  <h3 className="font-serif font-bold text-lg text-slate-800">
-                    献策書
-                  </h3>
+              <div className="flex justify-start mb-8">
+                <button
+                  onClick={generateStrategy}
+                  disabled={isLoading || !strategyInput.trim()}
+                  className="bg-indigo-900 text-white px-8 py-4 font-bold tracking-widest hover:bg-indigo-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center gap-3 shadow-lg group relative overflow-hidden"
+                >
+                  {isLoading ? (
+                    <>
+                      <span className="animate-spin w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></span>
+                      策を練っております...
+                    </>
+                  ) : (
+                    <>
+                      <Bot size={20} />
+                      策を講じる
+                    </>
+                  )}
+                  <div className="absolute inset-0 bg-white/10 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
+                </button>
+              </div>
+
+              {error && (
+                <div className="text-red-600 text-sm font-bold bg-red-50 p-4 border border-red-100 mb-6">
+                  {error}
                 </div>
+              )}
 
-                <div className="prose prose-slate prose-sm max-w-none font-serif text-slate-700 leading-relaxed whitespace-pre-wrap">
-                  {strategyResult}
-                </div>
-
-                <div className="mt-8 pt-4 border-t border-slate-200 text-right">
-                  <div className="inline-block border border-indigo-900 text-indigo-900 px-4 py-1 text-xs font-bold tracking-widest stamp-effect opacity-80 rotate-[-2deg]">
-                    F-BRAINS 承認
+              {strategyResult && (
+                <div className="animate-fade-in bg-[#FDFBF7] border border-slate-200 p-6 relative">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-indigo-900/10"></div>
+                  <div className="flex items-center gap-2 mb-4 border-b border-slate-200 pb-2">
+                    <Scroll className="text-indigo-900" size={20} />
+                    <h3 className="font-serif font-bold text-slate-800">
+                      献策書
+                    </h3>
+                  </div>
+                  <div className="prose prose-slate prose-sm max-w-none font-serif text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {strategyResult}
+                  </div>
+                  <div className="mt-6 pt-2 border-t border-slate-200 text-right">
+                    <div className="inline-block border border-indigo-900 text-indigo-900 px-3 py-1 text-xs font-bold tracking-widest stamp-effect opacity-80 rotate-[-2deg]">
+                      F-BRAINS 承認
+                    </div>
                   </div>
                 </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Real-time History */}
+          <div className="relative">
+            <div className="flex items-center justify-between mb-8 border-b border-slate-200 pb-4">
+              <div>
+                <span className="text-slate-400 font-bold tracking-widest text-xs uppercase mb-1 block">
+                  Real-time Logs
+                </span>
+                <h3 className="text-2xl font-serif font-bold text-slate-900 flex items-center gap-2">
+                  <History className="text-indigo-900" /> 他国の軍議
+                </h3>
               </div>
-            )}
+              <div className="flex items-center gap-2 text-xs font-bold bg-slate-100 px-3 py-1 rounded-full">
+                <Activity
+                  size={12}
+                  className={`text-green-500 ${
+                    isRealtimeConnected ? "animate-pulse" : ""
+                  }`}
+                />
+                {isRealtimeConnected ? "LIVE FEED" : "OFFLINE"}
+              </div>
+            </div>
+
+            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar relative">
+              {!isSupabaseEnabled && (
+                <div className="bg-amber-50 border border-amber-200 p-4 text-xs text-amber-800 mb-4">
+                  ※
+                  Supabase未接続のため、デモモード（静的データ）で表示しています。
+                </div>
+              )}
+
+              {historyLogs.length === 0 ? (
+                <div className="text-slate-400 text-center py-10 font-mono text-xs">
+                  NO RECORDS YET...
+                </div>
+              ) : (
+                historyLogs.map((log, index) => (
+                  <div
+                    key={log.id || index}
+                    className="bg-white border-l-2 border-slate-200 p-5 hover:border-indigo-900 transition-colors shadow-sm animate-fade-in-up"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-2 py-1">
+                        {new Date(log.created_at).toLocaleTimeString()}
+                      </span>
+                      <span className="text-[10px] font-bold text-indigo-900 tracking-wider">
+                        CONFIDENTIAL
+                      </span>
+                    </div>
+                    <div className="mb-3">
+                      <p className="text-xs font-bold text-slate-500 mb-1">
+                        戦況 (INPUT)
+                      </p>
+                      <p className="text-sm text-slate-800 font-serif line-clamp-2">
+                        {log.input}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 mb-1">
+                        軍師の策 (OUTPUT)
+                      </p>
+                      <p className="text-xs text-slate-600 leading-relaxed line-clamp-3 bg-slate-50 p-2 border border-slate-100">
+                        {log.result}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {/* Fade out effect at bottom */}
+              <div className="absolute bottom-0 left-0 w-full h-20 bg-gradient-to-t from-slate-50 to-transparent pointer-events-none"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -467,7 +590,6 @@ const App = () => {
               戦果報告
             </h2>
           </div>
-
           <div className="space-y-6">
             {[
               {
@@ -541,7 +663,6 @@ const App = () => {
       <section className="py-24 px-6 bg-[#1a1a2e] text-white text-center relative overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] border border-white/5 rounded-full"></div>
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] border border-white/10 rounded-full"></div>
-
         <div className="relative z-10 max-w-2xl mx-auto space-y-8">
           <Database className="w-12 h-12 mx-auto text-indigo-400 mb-6" />
           <h2 className="text-3xl md:text-5xl font-serif font-bold leading-normal">
@@ -563,7 +684,6 @@ const App = () => {
       <section id="company" className="py-24 px-6 bg-[#FDFBF7] relative">
         <div className="max-w-5xl mx-auto">
           <div className="grid md:grid-cols-12 gap-12">
-            {/* Title Column */}
             <div className="md:col-span-4 lg:col-span-3 relative">
               <span className="text-indigo-900 font-bold tracking-widest text-xs uppercase mb-4 block md:hidden">
                 Company
@@ -571,30 +691,18 @@ const App = () => {
               <h2 className="text-4xl font-serif font-bold text-slate-900 mb-8 md:mb-0 md:writing-vertical-rl md:h-64 md:text-5xl tracking-wide">
                 会社概要
               </h2>
-              {/* Background Watermark */}
               <div className="absolute -top-10 -left-10 w-48 h-48 border-4 border-indigo-900/5 rotate-12 -z-10"></div>
             </div>
-
-            {/* Content Column - Styled like a registry */}
             <div className="md:col-span-8 lg:col-span-9 bg-white p-8 md:p-12 shadow-sm border border-slate-100 relative">
-              {/* Corner accents */}
               <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-indigo-900"></div>
               <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-indigo-900"></div>
-
               <dl className="grid gap-y-6">
                 {[
-                  { dt: "会社名", dd: "株式会社エフ＆ブレインズ" },
-                  { dt: "英文社名", dd: "F&brains Inc." },
-                  { dt: "代表取締役", dd: "二村慈哉" },
+                  { dt: "屋号", dd: "F-BRAINS (エフ・ブレインズ)" },
+                  { dt: "代表", dd: "山田 太郎 (Taro Yamada)" },
                   {
                     dt: "所在地",
-                    dd: (
-                      <>
-                        本社：愛知県名古屋市中川区野田2丁目364番
-                        <br />
-                        東京出張所：東京都品川区大井2-27-24-1203
-                      </>
-                    ),
+                    dd: "〒100-0000 東京都千代田区...",
                     icon: (
                       <MapPin
                         size={14}
@@ -603,18 +711,8 @@ const App = () => {
                     ),
                   },
                   {
-                    dt: "電話番号",
-                    dd: (
-                      <>
-                        090-3509-8848（代表）
-                        <br />
-                        070-8488-4730（システム関連）
-                      </>
-                    ),
-                  },
-                  {
                     dt: "設立",
-                    dd: "2010年7月",
+                    dd: "2024年1月",
                     icon: (
                       <Calendar
                         size={14}
@@ -626,13 +724,14 @@ const App = () => {
                     dt: "事業内容",
                     dd: (
                       <ul className="list-disc list-inside space-y-1 text-slate-600">
-                        <li>メディア運営</li>
-                        <li>システム開発</li>
-                        <li>映像制作</li>
+                        <li>Webシステム・アプリケーション開発</li>
+                        <li>生成AI（LLM）導入・活用支援</li>
+                        <li>業務効率化・自動化（RPA）コンサルティング</li>
+                        <li>データ連携基盤構築</li>
                       </ul>
                     ),
                   },
-                  { dt: "取引銀行", dd: "三菱UFJ銀行 大井支店" },
+                  { dt: "取引銀行", dd: "◯◯銀行、△△銀行" },
                 ].map((item, idx) => (
                   <div
                     key={idx}
@@ -640,7 +739,6 @@ const App = () => {
                   >
                     <dt className="md:col-span-3 text-sm font-bold text-indigo-900 tracking-widest flex items-center mb-2 md:mb-0">
                       <span className="w-1 h-4 bg-indigo-900 mr-3 opacity-0 group-hover:opacity-100 transition-opacity"></span>
-                      {item.icon}
                       {item.dt}
                     </dt>
                     <dd className="md:col-span-9 text-slate-700 font-serif leading-relaxed">
@@ -671,24 +769,21 @@ const App = () => {
             <br />
             お気軽にご連絡ください。
           </p>
-
           <div className="flex flex-col md:flex-row justify-center gap-6">
             <a
               href="mailto:contact@f-brains.tokyo"
               className="group bg-indigo-900 text-white px-10 py-5 text-sm font-bold tracking-widest hover:bg-indigo-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-indigo-900/10 hover:shadow-indigo-900/20"
             >
-              <Mail className="group-hover:animate-pulse" />
-              メールで相談する
+              <Mail className="group-hover:animate-pulse" /> メールで相談する
             </a>
             <a
               href="#"
               className="group bg-white border border-slate-200 text-slate-900 px-10 py-5 text-sm font-bold tracking-widest hover:border-indigo-900 transition-all flex items-center justify-center gap-3"
             >
-              <ExternalLink className="group-hover:scale-110 transition-transform" />
+              <ExternalLink className="group-hover:scale-110 transition-transform" />{" "}
               CrowdWorks
             </a>
           </div>
-
           <footer className="mt-24 pt-8 border-t border-slate-100 text-xs text-slate-400 font-mono flex flex-col md:flex-row justify-between items-center gap-4">
             <div>© 2024 F-BRAINS.</div>
             <div className="flex gap-4">
@@ -699,33 +794,23 @@ const App = () => {
         </div>
       </section>
 
-      {/* Vertical Text Decoration */}
       <div className="fixed top-32 left-6 hidden xl:block writing-vertical-rl text-xs tracking-[0.3em] text-slate-300 font-bold select-none z-0">
         STRATEGIC SYSTEM DEVELOPMENT
       </div>
 
       <style>{`
-        .writing-vertical-rl {
-          writing-mode: vertical-rl;
-          text-orientation: upright;
-        }
-        @keyframes spin-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes reverse-spin-slower {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(-360deg); }
-        }
-        .animate-spin-slow {
-          animation: spin-slow 20s linear infinite;
-        }
-        .animate-reverse-spin-slower {
-          animation: reverse-spin-slower 30s linear infinite;
-        }
-        .stamp-effect {
-          mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 50' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.1' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.5'/%3E%3C/svg%3E");
-        }
+        .writing-vertical-rl { writing-mode: vertical-rl; text-orientation: upright; }
+        @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes reverse-spin-slower { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+        .animate-spin-slow { animation: spin-slow 20s linear infinite; }
+        .animate-reverse-spin-slower { animation: reverse-spin-slower 30s linear infinite; }
+        .stamp-effect { mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 50' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.1' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.5'/%3E%3C/svg%3E"); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .animate-fade-in-up { animation: fadeInUp 0.5s ease-out; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   );
